@@ -12,12 +12,23 @@ import {
 import { createDemoArchive } from './demo-data.js';
 import { icon } from './icons.js';
 import TelegramSearchIndex from './search-index.js';
+import { collectShared, mediaKind } from './shared-media.js';
 import { parseTelegramExport } from './telegram-parser.js';
 
 const app = document.getElementById('app');
 const folderInput = document.getElementById('folder-input');
 const MESSAGE_BATCH = 180;
+const SHARED_BATCH = 96;
 const compactNumber = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 });
+const SHARED_CATEGORIES = [
+  { key: 'photos', icon: 'image', singular: 'photo', plural: 'photos' },
+  { key: 'videos', icon: 'video', singular: 'video', plural: 'videos' },
+  { key: 'files', icon: 'file', singular: 'file', plural: 'files' },
+  { key: 'audio', icon: 'audio', singular: 'audio file', plural: 'audio files' },
+  { key: 'links', icon: 'link', singular: 'shared link', plural: 'shared links' },
+  { key: 'voice', icon: 'mic', singular: 'voice message', plural: 'voice messages' },
+  { key: 'gifs', icon: 'gif', singular: 'GIF', plural: 'GIFs' },
+];
 
 const state = {
   screen: 'welcome',
@@ -40,7 +51,9 @@ const state = {
   scrollPositions: new Map(),
   highlightedMessageId: null,
   infoOpen: false,
-  sharedTab: 'media',
+  sharedTab: 'photos',
+  sharedLimits: new Map(),
+  infoScrollPositions: new Map(),
   overlay: null,
   contextMenu: null,
   theme: localStorage.getItem('teleview:theme') || 'system',
@@ -217,18 +230,6 @@ function chatKind(chat) {
 
 function chatKindLabel(chat) {
   return ({ saved: 'Saved messages', bot: 'Bot', channel: 'Channel', group: 'Group', private: 'Private chat' })[chatKind(chat)];
-}
-
-function mediaKind(media) {
-  const type = String(media?.type || '').toLocaleLowerCase();
-  if (/photo|image/.test(type)) return 'photo';
-  if (/video|round_video|video_message/.test(type)) return 'video';
-  if (/voice/.test(type)) return 'voice';
-  if (/audio|music/.test(type)) return 'audio';
-  if (/sticker/.test(type)) return 'sticker';
-  if (/animation|gif/.test(type)) return 'animation';
-  if (/link|webpage/.test(type)) return 'link';
-  return 'file';
 }
 
 function applyPreferences() {
@@ -894,51 +895,91 @@ function renderConversation() {
     </section>`;
 }
 
-function collectShared(chat) {
-  const items = { media: [], files: [], links: [], audio: [] };
-  for (const message of chat?.messages || []) {
-    for (let index = 0; index < (message.media || []).length; index += 1) {
-      const media = message.media[index];
-      const kind = mediaKind(media);
-      const item = { media, message, index };
-      if (['photo', 'video', 'sticker', 'animation'].includes(kind)) items.media.push(item);
-      if (kind === 'file') items.files.push(item);
-      if (['link'].includes(kind)) items.links.push(item);
-      if (['voice', 'audio'].includes(kind)) items.audio.push(item);
-    }
-    const urlMatches = String(message.text || '').match(/https?:\/\/[^\s<]+/giu) || [];
-    for (const url of urlMatches) {
-      if (!items.links.some((item) => item.media?.url === url)) {
-        items.links.push({ media: { type: 'link', url, title: url }, message, index: -1 });
-      }
-    }
-  }
-  return items;
+function sharedCategory(key) {
+  return SHARED_CATEGORIES.find((category) => category.key === key) || SHARED_CATEGORIES[0];
 }
 
-function renderSharedContent(chat) {
-  const shared = collectShared(chat);
-  const selected = shared[state.sharedTab] || [];
-  if (state.sharedTab === 'media') {
-    if (!selected.length) return `<div class="shared-empty">No photos or videos were included in this export.</div>`;
-    return `<div class="shared-grid">${selected.slice(-30).reverse().map(({ media, message, index }) => {
-      const path = media.path || media.file || media.filePath || media.photo || media.thumbnail || '';
-      if (media.demoGradient) return `<button class="media-photo is-placeholder" type="button" data-action="open-media" data-chat-id="${escapeAttribute(chat.id)}" data-message-id="${escapeAttribute(message.id)}" data-media-index="${index}" aria-label="Open media">${icon('image')}</button>`;
-      return path
-        ? `<button type="button" data-action="open-media" data-chat-id="${escapeAttribute(chat.id)}" data-message-id="${escapeAttribute(message.id)}" data-media-index="${index}" aria-label="Open media"><img data-asset-path="${escapeAttribute(path)}" alt="Shared media" loading="lazy" /></button>`
-        : `<button type="button" data-action="jump-message" data-message-id="${escapeAttribute(message.id)}" aria-label="Missing media">${icon('image')}</button>`;
-    }).join('')}</div>`;
-  }
-  if (!selected.length) return `<div class="shared-empty">No ${state.sharedTab} were included in this export.</div>`;
-  return `<div class="shared-list">${selected.slice(-40).reverse().map(({ media, message }) => {
-    if (state.sharedTab === 'links') {
-      const href = safeHref(media.url || media.path);
-      return `<a class="shared-list-row" href="${escapeAttribute(href)}" target="_blank" rel="noopener noreferrer">${icon('link')}<span><strong>${escapeHtml(media.title || media.url || 'Link')}</strong><small>${escapeHtml(formatFullDate(message.date))}</small></span></a>`;
+function sharedCountLabel(count, category) {
+  const word = Number(count) === 1 ? category.singular : category.plural;
+  return `${Number(count || 0).toLocaleString()} ${word}`;
+}
+
+function sharedLimitKey(chat, category = state.sharedTab) {
+  return `${String(chat?.id || '')}:${category}`;
+}
+
+function sharedLimit(chat, total, category = state.sharedTab) {
+  const value = state.sharedLimits.get(sharedLimitKey(chat, category)) || SHARED_BATCH;
+  return Math.min(total, value);
+}
+
+function actualMediaPath(media) {
+  return media.path || media.file || media.filePath || media.photo || '';
+}
+
+function sharedPreviewPath(media, category) {
+  const thumbnail = media.thumbnailPath || media.thumbnail || '';
+  if (thumbnail) return thumbnail;
+  const path = actualMediaPath(media);
+  if (category === 'photos') return path;
+  if (category === 'gifs' && /\.(?:avif|gif|jpe?g|png|webp)$/iu.test(path)) return path;
+  return '';
+}
+
+function renderSharedGrid(chat, selected, category) {
+  return `<div class="shared-grid">${selected.map(({ media, message, index }) => {
+    const previewPath = sharedPreviewPath(media, category);
+    const mediaLabel = sharedCategory(category).singular;
+    const attrs = `data-action="open-media" data-chat-id="${escapeAttribute(chat.id)}" data-message-id="${escapeAttribute(message.id)}" data-media-index="${index}"`;
+    if (media.demoGradient) {
+      return `<button class="shared-preview is-placeholder" type="button" ${attrs} aria-label="Open ${escapeAttribute(mediaLabel)}">${icon('image')}</button>`;
     }
-    const path = media.path || media.file || media.filePath || '';
-    const name = media.fileName || path.split('/').pop() || (state.sharedTab === 'audio' ? 'Audio' : 'File');
-    return `<button class="shared-list-row" type="button" data-action="jump-message" data-message-id="${escapeAttribute(message.id)}">${icon(state.sharedTab === 'audio' ? 'mic' : 'file')}<span><strong>${escapeHtml(name)}</strong><small>${escapeHtml([formatBytes(media.size), formatFullDate(message.date)].filter(Boolean).join(' · '))}</small></span></button>`;
+    const visual = previewPath
+      ? `<img data-asset-path="${escapeAttribute(previewPath)}" alt="${escapeAttribute(media.fileName || `Shared ${mediaLabel}`)}" loading="lazy" />`
+      : `<span class="shared-preview-placeholder">${icon(category === 'videos' ? 'video' : 'gif')}<small>${category === 'videos' && media.duration ? escapeHtml(formatDuration(media.duration)) : mediaLabel}</small></span>`;
+    const badge = category === 'gifs'
+      ? '<span class="shared-preview-badge">GIF</span>'
+      : category === 'videos' && media.duration
+        ? `<span class="shared-preview-badge">${escapeHtml(formatDuration(media.duration))}</span>`
+        : '';
+    return `<button class="shared-preview" type="button" ${attrs} aria-label="Open ${escapeAttribute(mediaLabel)}">${visual}${badge}</button>`;
   }).join('')}</div>`;
+}
+
+function renderSharedList(selected, category) {
+  return `<div class="shared-list">${selected.map(({ media, message }) => {
+    if (category === 'links') {
+      const href = safeHref(media.url || media.path);
+      return href
+        ? `<a class="shared-list-row" href="${escapeAttribute(href)}" target="_blank" rel="noopener noreferrer">${icon('link')}<span><strong>${escapeHtml(media.title || media.url || 'Link')}</strong><small>${escapeHtml(formatFullDate(message.date))}</small></span></a>`
+        : '';
+    }
+    const path = actualMediaPath(media);
+    const fallbackName = category === 'voice' ? 'Voice message' : category === 'audio' ? (media.title || 'Audio file') : 'File';
+    const name = media.fileName || path.split('/').pop() || fallbackName;
+    const details = category === 'voice'
+      ? [media.duration ? formatDuration(media.duration) : '', formatFullDate(message.date)]
+      : [media.performer, formatBytes(media.size), formatFullDate(message.date)];
+    const iconName = category === 'voice' ? 'mic' : category === 'audio' ? 'audio' : 'file';
+    return `<button class="shared-list-row" type="button" data-action="jump-message" data-message-id="${escapeAttribute(message.id)}">${icon(iconName)}<span><strong>${escapeHtml(name)}</strong><small>${escapeHtml(details.filter(Boolean).join(' · '))}</small></span></button>`;
+  }).join('')}</div>`;
+}
+
+function renderSharedContent(chat, shared = collectShared(chat)) {
+  const category = sharedCategory(state.sharedTab);
+  const selected = shared[category.key] || [];
+  if (!selected.length) return `<div class="shared-empty">No ${escapeHtml(category.plural)} were included in this export.</div>`;
+
+  const limit = sharedLimit(chat, selected.length, category.key);
+  const visible = selected.slice(-limit).reverse();
+  const content = ['photos', 'videos', 'gifs'].includes(category.key)
+    ? renderSharedGrid(chat, visible, category.key)
+    : renderSharedList(visible, category.key);
+  const remaining = selected.length - limit;
+  const more = remaining > 0
+    ? `<button class="shared-load-more" type="button" data-action="load-shared-more">Show ${Math.min(SHARED_BATCH, remaining).toLocaleString()} more</button>`
+    : `<div class="shared-end">All ${escapeHtml(category.plural)} shown</div>`;
+  return `${content}${more}`;
 }
 
 function renderInfoPanel() {
@@ -951,7 +992,7 @@ function renderInfoPanel() {
   const last = lastMessage(chat);
   return `<aside class="info-panel" aria-label="Chat details">
     <header class="info-header"><strong>Chat info</strong><button class="icon-button" type="button" aria-label="Close chat details" data-action="close-info">${icon('close')}</button></header>
-    <div class="info-scroll">
+    <div class="info-scroll" data-info-scroll>
       <section class="info-profile">${renderAvatar(chat.name)}<h2>${escapeHtml(chat.name)}</h2><p>${escapeHtml(chatKindLabel(chat))}</p></section>
       <section class="info-section">
         <h3>Archive summary</h3>
@@ -962,10 +1003,11 @@ function renderInfoPanel() {
       </section>
       <section class="info-section">
         <h3>Shared content</h3>
-        <div class="shared-tabs">
-          ${[['media', `Media ${shared.media.length}`], ['files', `Files ${shared.files.length}`], ['links', `Links ${shared.links.length}`], ['audio', `Audio ${shared.audio.length}`]].map(([key, label]) => `<button class="shared-tab ${state.sharedTab === key ? 'is-active' : ''}" type="button" data-action="set-shared-tab" data-tab="${key}">${label}</button>`).join('')}
+        <div class="shared-categories" role="tablist" aria-label="Shared content categories">
+          ${SHARED_CATEGORIES.map((category) => `<button class="shared-category ${state.sharedTab === category.key ? 'is-active' : ''}" type="button" role="tab" aria-selected="${state.sharedTab === category.key}" data-action="set-shared-tab" data-tab="${category.key}">${icon(category.icon)}<span>${escapeHtml(sharedCountLabel(shared[category.key].length, category))}</span>${icon('chevronRight', 'shared-category-arrow')}</button>`).join('')}
         </div>
-        ${renderSharedContent(chat)}
+        <div class="shared-content-heading"><strong>${escapeHtml(sharedCategory(state.sharedTab).plural)}</strong><span>Newest first</span></div>
+        ${renderSharedContent(chat, shared)}
       </section>
     </div>
   </aside>`;
@@ -1062,12 +1104,17 @@ function renderViewer(options = {}) {
   if (!state.archive) return renderWelcome();
   state.screen = 'viewer';
   const previousScroller = document.querySelector('[data-message-scroller]');
+  const previousInfoScroller = document.querySelector('[data-info-scroll]');
+  if (previousInfoScroller && state.selectedChatId != null) {
+    state.infoScrollPositions.set(String(state.selectedChatId), previousInfoScroller.scrollTop);
+  }
   const previousScroll = options.preserveScroll && previousScroller
     ? { top: previousScroller.scrollTop, height: previousScroller.scrollHeight }
     : null;
   app.innerHTML = `<main class="app-shell ${state.infoOpen ? 'info-open' : ''} ${state.mobileChatOpen ? 'mobile-chat-open' : ''}">${renderSidebar()}${renderConversation()}${renderInfoPanel()}</main>${renderOverlay()}${renderContextMenu()}`;
   hydrateMedia();
   attachScroller(previousScroll, options.preserveFromTop);
+  attachInfoScroller();
   if (state.inChatSearchOpen && options.focusChatSearch) {
     requestAnimationFrame(() => document.querySelector('[data-in-chat-search]')?.focus());
   }
@@ -1123,6 +1170,35 @@ function attachScroller(previousScroll = null, preserveFromTop = false) {
   requestAnimationFrame(updateJumpButton);
 }
 
+function loadMoreShared() {
+  const chat = getChat();
+  if (!chat || !state.infoOpen) return;
+  const selected = collectShared(chat)[state.sharedTab] || [];
+  const key = sharedLimitKey(chat);
+  const current = sharedLimit(chat, selected.length);
+  if (current >= selected.length) return;
+  state.sharedLimits.set(key, Math.min(selected.length, current + SHARED_BATCH));
+  renderViewer({ preserveScroll: true });
+}
+
+function attachInfoScroller() {
+  const scroller = document.querySelector('[data-info-scroll]');
+  const chat = getChat();
+  if (!scroller || !chat) return;
+  const positionKey = String(chat.id);
+  scroller.scrollTop = state.infoScrollPositions.get(positionKey) || 0;
+  let loadingMore = false;
+  scroller.addEventListener('scroll', () => {
+    state.infoScrollPositions.set(positionKey, scroller.scrollTop);
+    const distance = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
+    if (distance > 240 || loadingMore) return;
+    const total = collectShared(chat)[state.sharedTab]?.length || 0;
+    if (sharedLimit(chat, total) >= total) return;
+    loadingMore = true;
+    requestAnimationFrame(loadMoreShared);
+  }, { passive: true });
+}
+
 function scrollToLatest(smooth = true) {
   const chat = getChat();
   if (!chat) return;
@@ -1149,7 +1225,7 @@ function selectChat(chatId, options = {}) {
   state.selectedChatId = chat.id;
   state.mobileChatOpen = true;
   state.infoOpen = false;
-  state.sharedTab = 'media';
+  state.sharedTab = 'photos';
   state.contextMenu = null;
   if (changed) {
     state.inChatSearchOpen = false;
@@ -1356,7 +1432,7 @@ async function openMedia(chatId, messageId, mediaIndex) {
 }
 
 function allPreviewableMedia(chat = getChat()) {
-  return collectShared(chat).media;
+  return collectShared(chat).previewable;
 }
 
 function moveLightbox(direction) {
@@ -1473,9 +1549,10 @@ async function handleAction(target, event) {
       renderViewer({ preserveScroll: true });
       break;
     case 'set-shared-tab':
-      state.sharedTab = target.dataset.tab || 'media';
+      state.sharedTab = SHARED_CATEGORIES.some(({ key }) => key === target.dataset.tab) ? target.dataset.tab : 'photos';
       renderViewer({ preserveScroll: true });
       break;
+    case 'load-shared-more': loadMoreShared(); break;
     case 'open-settings':
       state.overlay = { kind: 'settings' };
       renderViewer({ preserveScroll: true });

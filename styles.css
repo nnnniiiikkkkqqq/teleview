@@ -1466,8 +1466,13 @@ mark.search-mark {
 .info-header strong { font-size: 16px; }
 
 .info-scroll {
+  min-height: 0;
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--border-strong) transparent;
+  -webkit-overflow-scrolling: touch;
   padding-bottom: 30px;
 }
 
@@ -1521,25 +1526,59 @@ mark.search-mark {
 .stat-row span { flex: 1; color: var(--text-soft); font-size: 13px; }
 .stat-row strong { font-size: 13px; font-weight: 680; }
 
-.shared-tabs {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
-  margin-bottom: 12px;
+.shared-categories {
+  margin: 0 -18px 18px;
+  border-block: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
 }
 
-.shared-tab {
-  height: 32px;
+.shared-category {
+  width: 100%;
+  min-height: 52px;
+  padding: 0 16px 0 20px;
   border: 0;
-  border-radius: 9px;
+  border-bottom: 1px solid var(--border);
   background: transparent;
-  color: var(--text-soft);
-  font-size: 11px;
-  font-weight: 650;
+  color: var(--text);
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 12px;
   cursor: pointer;
+  text-align: left;
+  transition: background 140ms ease, color 140ms ease;
 }
 
-.shared-tab.is-active { background: var(--accent-soft); color: var(--accent-text); }
+.shared-category:last-child { border-bottom: 0; }
+.shared-category:hover { background: var(--surface-hover); }
+.shared-category.is-active { background: var(--surface-active); color: var(--accent-text); }
+.shared-category > .icon { width: 24px; height: 24px; color: var(--text-soft); stroke-width: 1.65; }
+.shared-category.is-active > .icon { color: var(--accent-text); }
+.shared-category span { min-width: 0; font-size: 14px; }
+.shared-category .shared-category-arrow { width: 16px; height: 16px; color: var(--text-faint); }
+
+.shared-content-heading {
+  min-height: 30px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.shared-content-heading strong {
+  font-size: 14px;
+  text-transform: capitalize;
+}
+
+.shared-content-heading span {
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
 
 .shared-grid {
   display: grid;
@@ -1548,6 +1587,7 @@ mark.search-mark {
 }
 
 .shared-grid button {
+  position: relative;
   aspect-ratio: 1;
   border: 0;
   border-radius: 4px;
@@ -1558,6 +1598,32 @@ mark.search-mark {
 }
 
 .shared-grid img { width: 100%; height: 100%; object-fit: cover; }
+
+.shared-preview-placeholder {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 5px;
+  color: var(--text-faint);
+}
+
+.shared-preview-placeholder .icon { width: 27px; height: 27px; }
+.shared-preview-placeholder small { max-width: 90%; font-size: 9px; overflow: hidden; text-overflow: ellipsis; }
+
+.shared-preview-badge {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: rgba(5, 18, 28, 0.72);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 720;
+  line-height: 1.2;
+}
 
 .shared-empty {
   padding: 18px 5px;
@@ -1596,6 +1662,28 @@ mark.search-mark {
 .shared-list-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shared-list-row strong { font-size: 12px; }
 .shared-list-row small { margin-top: 3px; color: var(--text-faint); font-size: 10px; }
+
+.shared-load-more {
+  width: 100%;
+  min-height: 40px;
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  color: var(--accent-text);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.shared-load-more:hover { background: var(--surface-hover); }
+
+.shared-end {
+  padding: 16px 4px 4px;
+  color: var(--text-faint);
+  text-align: center;
+  font-size: 10px;
+}
 
 .search-summary {
   padding: 12px 15px 7px;

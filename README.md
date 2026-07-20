@@ -32,10 +32,10 @@ You can also drag the whole export folder onto the welcome screen. If the browse
 - Private chats, groups, channels, bots, and Saved Messages
 - Persistent sender names, avatars, and colors, including exports where the owner cannot be identified
 - Rich text, links, replies, forwards, service events, edits, views, and reactions
-- Photos, videos, files, voice/audio, stickers, polls, contacts, and locations
+- Photos, videos, GIFs, files, music, voice messages, stickers in chat, polls, contacts, and locations
 - Lazy local media loading, missing-media placeholders, downloads, and a media lightbox
 - Global and current-chat search with exact phrases and filters
-- Chat type filters, date jumping, shared-content drawer, and message context actions
+- Chat type filters, date jumping, and a deep-scrolling shared-content drawer with separate photo, video, file, music, link, voice-message, and GIF categories (stickers stay out of shared media)
 - Desktop, tablet, and one-pane mobile layouts
 - System/light/dark themes and three text sizes
 - Keyboard shortcuts and reduced-motion support

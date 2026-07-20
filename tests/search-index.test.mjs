@@ -98,6 +98,7 @@ const archive = {
             date: "2024-02-06T10:00:00",
             from: "Link Bot",
             text: "Read https://example.com/release-notes",
+            audio_file: "audio/theme.mp3",
           },
         ],
       },
@@ -201,7 +202,7 @@ test("has filters recognize every supported read-only content type", () => {
   const expectations = new Map([
     ["photo", [2]],
     ["video", [10]],
-    ["audio", [4]],
+    ["audio", [15]],
     ["voice", [4]],
     ["sticker", [14]],
     ["poll", [12]],
@@ -215,7 +216,7 @@ test("has filters recognize every supported read-only content type", () => {
     assert.deepEqual(index.search(`has:${filter}`).results.map((item) => item.id), ids, filter);
   }
   assert.deepEqual(index.search("has:file").results.map((item) => item.id), [3]);
-  assert.deepEqual(index.search("has:media", { sort: "date-asc" }).results.map((item) => item.id), [2, 3, 4, 10, 14]);
+  assert.deepEqual(index.search("has:media", { sort: "date-asc" }).results.map((item) => item.id), [2, 3, 4, 10, 15]);
   assert.deepEqual(SUPPORTED_HAS_FILTERS, [
     "media", "link", "file", "photo", "video", "audio", "voice", "sticker",
     "poll", "location", "contact", "reaction",

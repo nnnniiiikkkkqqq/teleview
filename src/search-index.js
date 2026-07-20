@@ -355,7 +355,6 @@ function classifyType(value, has) {
   if (/(?:video|movie|animation|gif)/u.test(type)) has.add("video");
   if (/(?:voice|voice_message|round_audio)/u.test(type)) {
     has.add("voice");
-    has.add("audio");
   } else if (/(?:audio|music|song)/u.test(type)) {
     has.add("audio");
   }
@@ -403,7 +402,6 @@ function detectMessageFeatures(message, searchableText) {
   if (message?.audio || message?.audio_file) has.add("audio");
   if (message?.voice || message?.voice_message) {
     has.add("voice");
-    has.add("audio");
   }
   if (message?.sticker || message?.sticker_emoji) has.add("sticker");
   if (message?.file || message?.file_name || message?.document) has.add("file");
@@ -424,7 +422,7 @@ function detectMessageFeatures(message, searchableText) {
   }
   if (URL_RE.test(searchableText)) has.add("link");
 
-  if (["photo", "video", "audio", "voice", "sticker", "file"].some((type) => has.has(type))) {
+  if (["photo", "video", "audio", "voice", "file"].some((type) => has.has(type))) {
     has.add("media");
   }
   return has;
