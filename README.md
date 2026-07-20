@@ -28,6 +28,7 @@ You can also drag the whole export folder onto the welcome screen. If the browse
 ## Included features
 
 - Full-account and single-chat JSON exports
+- Add or refresh separately exported chats without replacing the open library
 - Single and paginated HTML exports, including multi-chat account folders
 - Private chats, groups, channels, bots, and Saved Messages
 - Persistent sender names, avatars, and colors, including exports where the owner cannot be identified

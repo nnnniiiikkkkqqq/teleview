@@ -9,6 +9,7 @@ import {
   reopenRememberedDirectory,
   supportsDirectoryPicker,
 } from './archive-source.js';
+import { mergeArchiveChats, namespaceArchiveSource } from './archive-library.js';
 import { createDemoArchive } from './demo-data.js';
 import { icon } from './icons.js';
 import TelegramSearchIndex from './search-index.js';
@@ -34,6 +35,7 @@ const state = {
   screen: 'welcome',
   archive: null,
   source: null,
+  sources: [],
   resolver: null,
   searchIndex: null,
   recentHandle: null,
@@ -60,6 +62,8 @@ const state = {
   textSize: localStorage.getItem('teleview:text-size') || 'comfortable',
   twelveHour: localStorage.getItem('teleview:time-format') === '12',
   loadingToken: 0,
+  sourceSequence: 0,
+  folderInputMode: 'replace',
   toastId: 0,
 };
 
@@ -351,6 +355,7 @@ function prepareArchive(archive, sourceName) {
 
   normalized.chats.forEach((chat, chatPosition) => {
     chat.id = String(chat.id ?? `chat-${chatPosition + 1}`);
+    chat._telegramId ??= chat.id;
     chat.name ||= `Chat ${chatPosition + 1}`;
     chat.messages = Array.isArray(chat.messages) ? chat.messages : [];
     chat.messages.forEach((message, messagePosition) => {
@@ -418,6 +423,7 @@ async function openArchiveSource(source) {
     state.resolver?.revokeAll();
     state.archive = archive;
     state.source = source;
+    state.sources = [source];
     state.resolver = new AssetResolver(source.entries);
     state.searchIndex = searchIndex;
     state.selectedChatId = archive.chats[0]?.id || null;
@@ -432,6 +438,7 @@ async function openArchiveSource(source) {
     state.infoOpen = false;
     state.mobileChatOpen = false;
     state.overlay = null;
+    state.sourceSequence = 0;
     state.screen = 'viewer';
 
     if (state.rememberFolder && source.handle) {
@@ -457,6 +464,7 @@ function openDemo() {
   const archive = prepareArchive(createDemoArchive(), 'Demo archive');
   state.archive = archive;
   state.source = { name: 'Demo archive', kind: 'demo', entries: [] };
+  state.sources = [state.source];
   state.resolver = new AssetResolver();
   state.searchIndex = new TelegramSearchIndex({ snippetLength: 180, defaultLimit: 80 });
   state.searchIndex.indexArchive(archive);
@@ -465,6 +473,7 @@ function openDemo() {
   state.globalSearchResponse = null;
   state.visibleRanges.clear();
   state.mobileChatOpen = false;
+  state.sourceSequence = 0;
   state.screen = 'viewer';
   renderViewer();
   requestAnimationFrame(() => scrollToLatest(false));
@@ -563,6 +572,7 @@ function renderSidebar() {
             <strong>${escapeHtml(state.archive?.title || 'Telegram archive')}</strong>
             <span>${plural(state.archive?.stats?.chats || 0, 'chat')} · ${plural(messageCount, 'message')}</span>
           </div>
+          <button class="icon-button" type="button" aria-label="Add chat" data-action="add-chat">${icon('plus')}</button>
           <button class="icon-button" type="button" aria-label="Open another archive" data-action="open-another">${icon('folder')}</button>
         </div>
         <label class="search-field">
@@ -576,7 +586,7 @@ function renderSidebar() {
         `).join('')}</div>
       </div>
       <div class="sidebar-content" data-sidebar-content>${renderSidebarList()}</div>
-      <div class="sidebar-footer">${icon('shield')} Local archive · read-only</div>
+      <div class="sidebar-footer"><span class="sidebar-local">${icon('shield')} Local archive · read-only</span><button class="sidebar-add-chat" type="button" data-action="add-chat">${icon('plus')} Add chat</button></div>
     </aside>`;
 }
 
@@ -1036,7 +1046,7 @@ function renderSettingsModal() {
         <div class="settings-row">${icon('calendar')}<span class="settings-copy"><strong>Time format</strong><span>Display exported message times.</span></span><span class="segmented"><button class="${!state.twelveHour ? 'is-active' : ''}" type="button" data-action="set-time-format" data-format="24">24h</button><button class="${state.twelveHour ? 'is-active' : ''}" type="button" data-action="set-time-format" data-format="12">12h</button></span></div>
         <div class="modal-divider"></div>
         <div class="archive-summary"><strong>${escapeHtml(state.archive?.title || 'Telegram archive')}</strong><br />${plural(stats.chats || 0, 'chat')} · ${plural(stats.messages || 0, 'message')}<br />${stats.firstDate ? `${escapeHtml(formatFullDate(stats.firstDate))} → ${escapeHtml(formatFullDate(stats.lastDate))}` : 'No dated messages'}<br />Format: ${escapeHtml(state.archive?.format || 'Telegram export')}</div>
-        <div class="modal-actions"><button class="secondary-button" type="button" data-action="show-shortcuts">${icon('keyboard')} Shortcuts</button><button class="primary-button" type="button" data-action="open-another">${icon('folder')} Open another</button></div>
+        <div class="modal-actions"><button class="secondary-button" type="button" data-action="show-shortcuts">${icon('keyboard')} Shortcuts</button><button class="secondary-button" type="button" data-action="add-chat">${icon('plus')} Add chat</button><button class="primary-button" type="button" data-action="open-another">${icon('folder')} Open another</button></div>
         ${state.recentHandle ? `<div class="modal-actions"><button class="quiet-button" type="button" data-action="forget-archive">Forget remembered folder</button></div>` : ''}
       </div>
     </section>
@@ -1070,6 +1080,13 @@ function renderRawModal(message) {
   return `<div class="modal-backdrop" data-action="close-overlay"><section class="modal" role="dialog" aria-modal="true" aria-labelledby="raw-title" data-modal><header class="modal-header"><h2 id="raw-title">Message details</h2><button class="icon-button" type="button" aria-label="Close" data-action="close-overlay">${icon('close')}</button></header><div class="modal-body"><pre class="raw-details"><code>${escapeHtml(JSON.stringify(message, (key, value) => key.startsWith('_') ? undefined : value, 2))}</code></pre></div></section></div>`;
 }
 
+function renderImportingModal() {
+  const item = state.overlay || {};
+  return `<div class="modal-backdrop"><section class="modal modal-small importing-modal" role="dialog" aria-modal="true" aria-labelledby="import-title" data-modal>
+    <div class="modal-body"><div class="spinner" aria-hidden="true"></div><h2 id="import-title">Adding chat</h2><p class="modal-copy" data-import-label>${escapeHtml(item.label || 'Reading the selected export…')}</p><div class="loading-progress" aria-hidden="true"><span data-import-progress style="--progress:${Math.max(3, Math.min(100, item.progress || 12))}%"></span></div></div>
+  </section></div>`;
+}
+
 function renderLightbox() {
   const item = state.overlay;
   if (!item?.message) return '';
@@ -1093,6 +1110,7 @@ function renderOverlay() {
   if (state.overlay.kind === 'date') return renderDateModal();
   if (state.overlay.kind === 'shortcuts') return renderShortcutsModal();
   if (state.overlay.kind === 'raw') return renderRawModal(state.overlay.message);
+  if (state.overlay.kind === 'importing') return renderImportingModal();
   if (state.overlay.kind === 'lightbox') return renderLightbox();
   return '';
 }
@@ -1599,15 +1617,103 @@ async function copyText(text, confirmation = 'Copied') {
 }
 
 function openFolderPicker() {
+  return openArchivePicker('replace');
+}
+
+function openAddChatPicker() {
+  if (!state.archive) return openArchivePicker('replace');
+  return openArchivePicker('add');
+}
+
+function openArchivePicker(mode = 'replace') {
   if (!supportsDirectoryPicker()) {
+    state.folderInputMode = mode;
     folderInput.click();
     return;
   }
   chooseArchiveFolder()
-    .then((source) => source && openArchiveSource(source))
+    .then((source) => source && (mode === 'add' ? addArchiveSource(source) : openArchiveSource(source)))
     .catch((error) => {
       if (error?.name !== 'AbortError') toast(error?.message || 'The folder could not be opened.');
     });
+}
+
+function updateImporting(label, progress) {
+  if (state.overlay?.kind !== 'importing') return;
+  state.overlay.label = label;
+  state.overlay.progress = progress;
+  const text = document.querySelector('[data-import-label]');
+  const bar = document.querySelector('[data-import-progress]');
+  if (text) text.textContent = label;
+  if (bar) bar.style.setProperty('--progress', `${Math.max(3, Math.min(100, progress))}%`);
+}
+
+async function addArchiveSource(source) {
+  if (!state.archive) return openArchiveSource(source);
+  if (!source?.entries?.length) {
+    toast('That folder is empty. Choose a Telegram Desktop export folder.');
+    return;
+  }
+
+  const token = ++state.loadingToken;
+  state.overlay = { kind: 'importing', label: 'Checking the export format…', progress: 10 };
+  renderOverlayOnly();
+  try {
+    updateImporting(`Reading ${source.entries.length.toLocaleString()} files…`, 24);
+    const parsed = await parseTelegramExport(source.entries, {
+      sourceName: source.name,
+      onProgress(progress) {
+        if (token !== state.loadingToken) return;
+        const value = typeof progress === 'number' ? progress : progress?.progress;
+        const label = typeof progress === 'object' ? progress.label : null;
+        updateImporting(label || 'Parsing conversations…', 24 + (Number(value) || 0) * 0.46);
+      },
+    });
+    if (token !== state.loadingToken) return;
+    const incoming = prepareArchive(parsed, source.name);
+    if (!incoming.chats.length) throw new Error('No Telegram chats were found in that folder.');
+
+    updateImporting('Adding messages and media…', 76);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const sourceKey = `added-${++state.sourceSequence}`;
+    const namespaced = namespaceArchiveSource(incoming, source.entries, sourceKey);
+    const merged = mergeArchiveChats(state.archive.chats, incoming.chats, sourceKey);
+
+    state.resolver.addEntries(namespaced.entries);
+    state.sources.push(source);
+    state.archive.chats = merged.chats;
+    state.archive.warnings = [...(state.archive.warnings || []), ...(incoming.warnings || [])];
+    state.archive.imports = [...(state.archive.imports || [state.source?.name || state.archive.sourceName]), source.name];
+    if (state.archive.format !== incoming.format) state.archive.format = 'combined';
+    prepareArchive(state.archive, state.archive.sourceName);
+    state.searchIndex.indexArchive(state.archive);
+
+    state.selectedChatId = merged.selectedChatId || state.selectedChatId;
+    state.scrollPositions.delete(String(state.selectedChatId));
+    state.globalQuery = '';
+    state.globalSearchResponse = null;
+    state.inChatSearchOpen = false;
+    state.inChatQuery = '';
+    state.inChatResults = [];
+    state.inChatCursor = -1;
+    state.infoOpen = false;
+    state.mobileChatOpen = true;
+    state.overlay = null;
+    renderViewer();
+    requestAnimationFrame(() => scrollToLatest(false));
+
+    const changes = [
+      merged.added.length ? plural(merged.added.length, 'chat') + ' added' : '',
+      merged.updated.length ? plural(merged.updated.length, 'chat') + ' updated' : '',
+    ].filter(Boolean).join(' · ');
+    toast(changes || 'The chat is already up to date.');
+  } catch (error) {
+    if (token !== state.loadingToken) return;
+    console.error('Unable to add Telegram export:', error?.message || error);
+    state.overlay = null;
+    renderOverlayOnly();
+    toast(error?.message || 'This does not look like a supported Telegram export.');
+  }
 }
 
 function refreshPreferenceModal() {
@@ -1624,7 +1730,13 @@ async function handleAction(target, event) {
     case 'open-folder':
     case 'open-another':
       state.overlay = null;
+      if (state.screen === 'viewer') renderOverlayOnly();
       openFolderPicker();
+      break;
+    case 'add-chat':
+      state.overlay = null;
+      renderOverlayOnly();
+      openAddChatPicker();
       break;
     case 'open-demo': openDemo(); break;
     case 'open-recent': {
@@ -1829,8 +1941,11 @@ app.addEventListener('contextmenu', (event) => {
 folderInput.addEventListener('change', () => {
   if (!folderInput.files?.length) return;
   const source = entriesFromFileList(folderInput.files);
+  const mode = state.folderInputMode;
+  state.folderInputMode = 'replace';
   folderInput.value = '';
-  openArchiveSource(source);
+  if (mode === 'add') addArchiveSource(source);
+  else openArchiveSource(source);
 });
 
 let dragDepth = 0;
@@ -1876,6 +1991,7 @@ document.addEventListener('keydown', (event) => {
     return;
   }
   if (event.key === 'Escape') {
+    if (state.overlay?.kind === 'importing') return;
     if (state.overlay) {
       state.overlay = null;
       renderOverlayOnly();

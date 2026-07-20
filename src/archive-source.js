@@ -108,11 +108,16 @@ export async function entriesFromDrop(dataTransfer) {
 
 export class AssetResolver {
   constructor(entries = []) {
-    this.entries = entries;
+    this.entries = [];
     this.byPath = new Map();
     this.byBasename = new Map();
     this.urls = new Map();
+    this.addEntries(entries);
+  }
+
+  addEntries(entries = []) {
     for (const entry of entries) {
+      this.entries.push(entry);
       const normalized = normalizePath(entry.path);
       this.byPath.set(normalized.toLocaleLowerCase(), entry);
       const basename = normalized.split('/').pop()?.toLocaleLowerCase();
@@ -120,6 +125,7 @@ export class AssetResolver {
       if (!this.byBasename.has(basename)) this.byBasename.set(basename, []);
       this.byBasename.get(basename).push(entry);
     }
+    return this;
   }
 
   find(path) {

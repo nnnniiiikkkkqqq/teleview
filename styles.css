@@ -759,10 +759,44 @@ input:focus-visible,
   font-size: 11px;
   display: flex;
   align-items: center;
-  gap: 7px;
+  justify-content: space-between;
+  gap: 10px;
 }
 
-.sidebar-footer .icon { width: 14px; height: 14px; color: var(--success); }
+.sidebar-local {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-local .icon { width: 14px; height: 14px; flex: 0 0 14px; color: var(--success); }
+
+.sidebar-add-chat {
+  height: 30px;
+  flex: 0 0 auto;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.sidebar-add-chat:hover { background: var(--surface-hover); }
+.sidebar-add-chat .icon { width: 14px; height: 14px; }
+
+.importing-modal .modal-body { text-align: center; }
+.importing-modal .spinner { margin: 0 auto 18px; }
+.importing-modal h2 { margin: 0 0 8px; }
 
 .conversation {
   min-width: 0;

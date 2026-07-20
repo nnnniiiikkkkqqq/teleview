@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.mjs",
     "test": "node --test",
-    "check": "node --check server.mjs && node --check src/app.js && node --check src/archive-source.js && node --check src/demo-data.js && node --check src/icons.js && node --check src/shared-media.js && node --check src/telegram-parser.js && node --check src/search-index.js"
+    "check": "node --check server.mjs && node --check src/app.js && node --check src/archive-library.js && node --check src/archive-source.js && node --check src/demo-data.js && node --check src/icons.js && node --check src/shared-media.js && node --check src/telegram-parser.js && node --check src/search-index.js"
   },
   "engines": {
     "node": ">=18"
