@@ -501,7 +501,7 @@ input:focus-visible,
 }
 
 .app-shell.info-open {
-  grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--info-width);
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
 }
 
 .sidebar {
@@ -822,6 +822,10 @@ input:focus-visible,
   display: flex;
   align-items: center;
   gap: 2px;
+}
+
+.chat-search-root {
+  display: contents;
 }
 
 .in-chat-search {
@@ -1446,12 +1450,17 @@ mark.search-mark {
 .info-panel {
   min-width: 0;
   min-height: 0;
-  height: 100%;
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(var(--info-width), calc(100vw - 40px));
   border-left: 1px solid var(--border);
   background: var(--surface);
   display: flex;
   flex-direction: column;
   z-index: 10;
+  box-shadow: -16px 0 45px rgba(0, 0, 0, 0.16);
 }
 
 .info-header {
@@ -2032,15 +2041,6 @@ mark.search-mark {
 
 @media (max-width: 1120px) {
   :root { --sidebar-width: 328px; --info-width: 300px; }
-  .app-shell.info-open { grid-template-columns: var(--sidebar-width) minmax(0, 1fr); }
-  .info-panel {
-    position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: min(var(--info-width), calc(100vw - 40px));
-    box-shadow: -16px 0 45px rgba(0, 0, 0, 0.16);
-  }
 }
 
 @media (max-width: 820px) {

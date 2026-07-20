@@ -886,7 +886,7 @@ function renderConversation() {
           <button class="icon-button" type="button" aria-label="Chat details" data-action="toggle-info" aria-pressed="${state.infoOpen}">${icon('info')}</button>
         </div>
       </header>
-      ${renderInChatSearch()}
+      <div class="chat-search-root" data-chat-search-root>${renderInChatSearch()}</div>
       <div class="message-scroller" data-message-scroller>
         <div class="message-stage">${renderMessageList(chat)}</div>
       </div>
@@ -1111,7 +1111,7 @@ function renderViewer(options = {}) {
   const previousScroll = options.preserveScroll && previousScroller
     ? { top: previousScroller.scrollTop, height: previousScroller.scrollHeight }
     : null;
-  app.innerHTML = `<main class="app-shell ${state.infoOpen ? 'info-open' : ''} ${state.mobileChatOpen ? 'mobile-chat-open' : ''}">${renderSidebar()}${renderConversation()}${renderInfoPanel()}</main>${renderOverlay()}${renderContextMenu()}`;
+  app.innerHTML = `<main class="app-shell ${state.infoOpen ? 'info-open' : ''} ${state.mobileChatOpen ? 'mobile-chat-open' : ''}">${renderSidebar()}${renderConversation()}${renderInfoPanel()}</main><div data-overlay-root>${renderOverlay()}</div><div data-context-root>${renderContextMenu()}</div>`;
   hydrateMedia();
   attachScroller(previousScroll, options.preserveFromTop);
   attachInfoScroller();
@@ -1121,6 +1121,67 @@ function renderViewer(options = {}) {
   if (options.focusGlobalSearch) {
     requestAnimationFrame(() => document.querySelector('[data-global-search]')?.focus());
   }
+}
+
+function renderOverlayOnly({ focusSelector = '' } = {}) {
+  const root = document.querySelector('[data-overlay-root]');
+  if (!root) {
+    renderViewer({ preserveScroll: true });
+    return;
+  }
+  root.innerHTML = renderOverlay();
+  if (focusSelector) requestAnimationFrame(() => root.querySelector(focusSelector)?.focus());
+}
+
+function renderContextMenuOnly() {
+  const root = document.querySelector('[data-context-root]');
+  if (!root) {
+    renderViewer({ preserveScroll: true });
+    return;
+  }
+  root.innerHTML = renderContextMenu();
+}
+
+function renderChatSearchOnly({ focus = false } = {}) {
+  const root = document.querySelector('[data-chat-search-root]');
+  if (!root) {
+    renderViewer({ focusChatSearch: focus, preserveScroll: true });
+    return;
+  }
+  root.innerHTML = renderInChatSearch();
+  document.querySelectorAll('[data-action="open-chat-search"]').forEach((button) => {
+    button.setAttribute('aria-pressed', String(state.inChatSearchOpen));
+  });
+  if (focus) requestAnimationFrame(() => root.querySelector('[data-in-chat-search]')?.focus());
+}
+
+function renderInfoPanelOnly() {
+  const shell = document.querySelector('.app-shell');
+  if (!shell) {
+    renderViewer({ preserveScroll: true });
+    return;
+  }
+  const current = shell.querySelector('.info-panel');
+  if (current && state.selectedChatId != null) {
+    const scroller = current.querySelector('[data-info-scroll]');
+    if (scroller) state.infoScrollPositions.set(String(state.selectedChatId), scroller.scrollTop);
+  }
+  shell.classList.toggle('info-open', state.infoOpen);
+  document.querySelectorAll('[data-action="toggle-info"]').forEach((button) => {
+    button.setAttribute('aria-pressed', String(state.infoOpen));
+  });
+  const html = renderInfoPanel();
+  if (!html) {
+    current?.remove();
+    return;
+  }
+  const template = document.createElement('template');
+  template.innerHTML = html.trim();
+  const next = template.content.firstElementChild;
+  if (current) current.replaceWith(next);
+  else shell.append(next);
+  hydrateMedia();
+  attachInfoScroller();
 }
 
 async function hydrateMedia() {
@@ -1178,7 +1239,7 @@ function loadMoreShared() {
   const current = sharedLimit(chat, selected.length);
   if (current >= selected.length) return;
   state.sharedLimits.set(key, Math.min(selected.length, current + SHARED_BATCH));
-  renderViewer({ preserveScroll: true });
+  renderInfoPanelOnly();
 }
 
 function attachInfoScroller() {
@@ -1268,6 +1329,7 @@ function runGlobalSearch(query, { fromInput = false } = {}) {
 function runInChatSearch(query, jump = false) {
   const input = document.querySelector('[data-in-chat-search]');
   if (input && input.value !== query) return;
+  clearInChatSearchHighlights();
   state.inChatQuery = query;
   if (!query.trim() || !state.selectedChatId) {
     state.inChatResults = [];
@@ -1284,7 +1346,6 @@ function runInChatSearch(query, jump = false) {
   }
   updateInChatSearchChrome();
   if (jump && state.inChatCursor >= 0) openCurrentChatResult();
-  else refreshMessageStage({ preserveScroll: true });
 }
 
 function openCurrentChatResult() {
@@ -1308,6 +1369,16 @@ function updateInChatSearchChrome() {
   document.querySelectorAll('[data-chat-search-nav]').forEach((button) => {
     button.disabled = !count;
   });
+}
+
+function clearInChatSearchHighlights() {
+  const parents = new Set();
+  document.querySelectorAll('mark.search-mark').forEach((mark) => {
+    parents.add(mark.parentNode);
+    mark.replaceWith(document.createTextNode(mark.textContent || ''));
+  });
+  parents.forEach((parent) => parent?.normalize());
+  document.querySelectorAll('.message-row.is-highlighted').forEach((row) => row.classList.remove('is-highlighted'));
 }
 
 function refreshMessageStage({ preserveScroll = false } = {}) {
@@ -1420,13 +1491,13 @@ async function openMedia(chatId, messageId, mediaIndex) {
   const media = message?.media?.[Number(mediaIndex)];
   if (!chat || !message || !media) return;
   state.overlay = { kind: 'lightbox', chatId: chat.id, message, media, mediaIndex: Number(mediaIndex), url: null };
-  renderViewer();
+  renderOverlayOnly();
   const path = media.path || media.file || media.filePath || media.photo || '';
   if (path && state.resolver) {
     const url = await state.resolver.getUrl(path);
     if (state.overlay?.kind === 'lightbox' && String(state.overlay.message.id) === String(message.id) && state.overlay.mediaIndex === Number(mediaIndex)) {
       state.overlay.url = url;
-      renderViewer();
+      renderOverlayOnly();
     }
   }
 }
@@ -1475,7 +1546,7 @@ function openFolderPicker() {
 }
 
 function refreshPreferenceModal() {
-  if (state.overlay) renderViewer();
+  if (state.overlay) renderOverlayOnly();
 }
 
 async function handleAction(target, event) {
@@ -1524,14 +1595,15 @@ async function handleAction(target, event) {
     case 'open-search-result': openSearchResult(target.dataset.chatId, target.dataset.messageId); break;
     case 'open-chat-search':
       state.inChatSearchOpen = true;
-      renderViewer({ focusChatSearch: true, preserveScroll: true });
+      renderChatSearchOnly({ focus: true });
       break;
     case 'close-chat-search':
       state.inChatSearchOpen = false;
       state.inChatQuery = '';
       state.inChatResults = [];
       state.inChatCursor = -1;
-      renderViewer({ preserveScroll: true });
+      clearInChatSearchHighlights();
+      renderChatSearchOnly();
       break;
     case 'previous-chat-result': moveChatSearchResult(1); break;
     case 'next-chat-result': moveChatSearchResult(-1); break;
@@ -1542,30 +1614,29 @@ async function handleAction(target, event) {
     case 'jump-latest': scrollToLatest(); break;
     case 'toggle-info':
       state.infoOpen = !state.infoOpen;
-      renderViewer({ preserveScroll: true });
+      renderInfoPanelOnly();
       break;
     case 'close-info':
       state.infoOpen = false;
-      renderViewer({ preserveScroll: true });
+      renderInfoPanelOnly();
       break;
     case 'set-shared-tab':
       state.sharedTab = SHARED_CATEGORIES.some(({ key }) => key === target.dataset.tab) ? target.dataset.tab : 'photos';
-      renderViewer({ preserveScroll: true });
+      renderInfoPanelOnly();
       break;
     case 'load-shared-more': loadMoreShared(); break;
     case 'open-settings':
       state.overlay = { kind: 'settings' };
-      renderViewer({ preserveScroll: true });
+      renderOverlayOnly();
       break;
     case 'open-date-jump':
       state.overlay = { kind: 'date' };
-      renderViewer({ preserveScroll: true });
-      requestAnimationFrame(() => document.querySelector('[data-jump-date]')?.focus());
+      renderOverlayOnly({ focusSelector: '[data-jump-date]' });
       break;
     case 'jump-to-date': jumpToDate(document.querySelector('[data-jump-date]')?.value); break;
     case 'close-overlay':
       state.overlay = null;
-      renderViewer({ preserveScroll: true });
+      renderOverlayOnly();
       break;
     case 'set-theme': setTheme(target.dataset.theme); refreshPreferenceModal(); break;
     case 'set-text-size': setTextSize(target.dataset.size); refreshPreferenceModal(); break;
@@ -1576,7 +1647,7 @@ async function handleAction(target, event) {
       break;
     case 'show-shortcuts':
       state.overlay = { kind: 'shortcuts' };
-      renderViewer({ preserveScroll: true });
+      renderOverlayOnly();
       break;
     case 'forget-archive':
       await forgetRememberedDirectory();
@@ -1607,28 +1678,29 @@ async function handleAction(target, event) {
       const message = findMessage(target.dataset.messageId);
       copyText(message?.text || messageSummary(message), 'Message copied');
       state.contextMenu = null;
-      renderViewer({ preserveScroll: true });
+      renderContextMenuOnly();
       break;
     }
     case 'copy-timestamp': {
       const message = findMessage(target.dataset.messageId);
       copyText(formatFullDate(message?.date), 'Timestamp copied');
       state.contextMenu = null;
-      renderViewer({ preserveScroll: true });
+      renderContextMenuOnly();
       break;
     }
     case 'copy-message-link': {
       const link = `${location.href.split('#')[0]}#chat=${encodeURIComponent(state.selectedChatId)}&message=${encodeURIComponent(target.dataset.messageId)}`;
       copyText(link, 'Local message link copied');
       state.contextMenu = null;
-      renderViewer({ preserveScroll: true });
+      renderContextMenuOnly();
       break;
     }
     case 'show-message-details': {
       const message = findMessage(target.dataset.messageId);
       state.contextMenu = null;
       state.overlay = { kind: 'raw', message };
-      renderViewer({ preserveScroll: true });
+      renderContextMenuOnly();
+      renderOverlayOnly();
       break;
     }
   }
@@ -1642,7 +1714,7 @@ app.addEventListener('click', (event) => {
   if (actionTarget) handleAction(actionTarget, event);
   else if (state.contextMenu) {
     state.contextMenu = null;
-    renderViewer({ preserveScroll: true });
+    renderContextMenuOnly();
   }
 });
 
@@ -1657,7 +1729,7 @@ app.addEventListener('input', (event) => {
     if (event.isComposing) return;
     clearTimeout(chatSearchTimer);
     const query = event.target.value;
-    chatSearchTimer = setTimeout(() => runInChatSearch(query, true), 100);
+    chatSearchTimer = setTimeout(() => runInChatSearch(query, false), 100);
   }
 });
 
@@ -1686,7 +1758,7 @@ app.addEventListener('contextmenu', (event) => {
     x: Math.max(8, Math.min(event.clientX, window.innerWidth - width - 8)),
     y: Math.max(8, Math.min(event.clientY, window.innerHeight - height - 8)),
   };
-  renderViewer({ preserveScroll: true });
+  renderContextMenuOnly();
 });
 
 folderInput.addEventListener('change', () => {
@@ -1741,15 +1813,17 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
     if (state.overlay) {
       state.overlay = null;
-      renderViewer({ preserveScroll: true });
+      renderOverlayOnly();
     } else if (state.contextMenu) {
       state.contextMenu = null;
-      renderViewer({ preserveScroll: true });
+      renderContextMenuOnly();
     } else if (state.inChatSearchOpen) {
       state.inChatSearchOpen = false;
       state.inChatQuery = '';
       state.inChatResults = [];
-      renderViewer({ preserveScroll: true });
+      state.inChatCursor = -1;
+      clearInChatSearchHighlights();
+      renderChatSearchOnly();
     } else if (state.globalQuery) {
       runGlobalSearch('');
     } else if (state.mobileChatOpen && matchMedia('(max-width: 820px)').matches) {
@@ -1762,11 +1836,11 @@ document.addEventListener('keydown', (event) => {
   if (event.key === '/') {
     event.preventDefault();
     state.inChatSearchOpen = true;
-    renderViewer({ focusChatSearch: true, preserveScroll: true });
+    renderChatSearchOnly({ focus: true });
   } else if (event.key === '?') {
     event.preventDefault();
     state.overlay = { kind: 'shortcuts' };
-    renderViewer({ preserveScroll: true });
+    renderOverlayOnly();
   } else if (event.key === 'End') {
     event.preventDefault();
     scrollToLatest();
