@@ -686,20 +686,28 @@ function renderWaveform() {
   return heights.map((height) => `<i style="--wave-height:${height}px"></i>`).join('');
 }
 
+function mediaAspectAttribute(media) {
+  const width = Number(media?.width);
+  const height = Number(media?.height);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return '';
+  return ` style="aspect-ratio:${width} / ${height}"`;
+}
+
 function renderSingleMedia(media, message, index) {
   const kind = mediaKind(media);
   const path = media.path || media.file || media.filePath || media.photo || media.thumbnail || '';
   const attrs = `data-chat-id="${escapeAttribute(message.chatId)}" data-message-id="${escapeAttribute(message.id)}" data-media-index="${index}"`;
+  const aspect = mediaAspectAttribute(media);
   if (kind === 'photo' || kind === 'sticker' || kind === 'animation') {
     if (media.demoGradient) {
-      return `<div class="media-block"><button class="media-photo is-placeholder" type="button" data-action="open-media" ${attrs} aria-label="Open demo photo">${icon('image')}</button></div>`;
+      return `<div class="media-block"><button class="media-photo is-placeholder" type="button" data-action="open-media" ${attrs}${aspect} aria-label="Open demo photo">${icon('image')}</button></div>`;
     }
     if (!path) return `<div class="media-block">${renderMediaUnavailable(`${kind[0].toUpperCase()}${kind.slice(1)} was not included`)}</div>`;
-    return `<div class="media-block"><button class="media-photo" type="button" data-action="open-media" ${attrs} aria-label="Open ${kind}"><img data-asset-path="${escapeAttribute(path)}" alt="${escapeAttribute(media.fileName || `${kind} attachment`)}" loading="lazy" /></button></div>`;
+    return `<div class="media-block"><button class="media-photo" type="button" data-action="open-media" ${attrs}${aspect} aria-label="Open ${kind}"><img data-asset-path="${escapeAttribute(path)}" alt="${escapeAttribute(media.fileName || `${kind} attachment`)}" loading="lazy" /></button></div>`;
   }
   if (kind === 'video') {
     if (!path) return `<div class="media-block">${renderMediaUnavailable('Video was not included')}</div>`;
-    return `<div class="media-block"><div class="media-photo"><video controls preload="metadata" data-asset-path="${escapeAttribute(path)}" ${attrs}>Your browser cannot preview this video.</video></div></div>`;
+    return `<div class="media-block"><div class="media-photo"${aspect}><video controls preload="metadata" data-asset-path="${escapeAttribute(path)}" ${attrs}>Your browser cannot preview this video.</video></div></div>`;
   }
   if (kind === 'voice' || kind === 'audio') {
     const title = media.fileName || (kind === 'voice' ? 'Voice message' : media.title || 'Audio');
@@ -1393,6 +1401,70 @@ function refreshMessageStage({ preserveScroll = false } = {}) {
   return true;
 }
 
+let cancelMessageAlignment = null;
+
+function alignMessageAfterMedia(messageId) {
+  cancelMessageAlignment?.();
+  const scroller = document.querySelector('[data-message-scroller]');
+  const stage = document.querySelector('.message-stage');
+  const target = document.getElementById(`message-${safeId(messageId)}`);
+  if (!scroller || !stage || !target) return;
+
+  let frame = 0;
+  let stopped = false;
+  const timers = [];
+  const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(() => queueAlignment()) : null;
+  const align = () => {
+    frame = 0;
+    if (stopped || !target.isConnected || !scroller.isConnected) return;
+    const scrollerRect = scroller.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const delta = targetRect.top + targetRect.height / 2 - (scrollerRect.top + scrollerRect.height / 2);
+    if (Math.abs(delta) < 1) return;
+    const previousBehavior = scroller.style.scrollBehavior;
+    scroller.style.scrollBehavior = 'auto';
+    scroller.scrollTop += delta;
+    scroller.style.scrollBehavior = previousBehavior;
+  };
+  function queueAlignment() {
+    if (stopped || frame) return;
+    frame = requestAnimationFrame(align);
+  }
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    if (frame) cancelAnimationFrame(frame);
+    timers.forEach(clearTimeout);
+    observer?.disconnect();
+    stage.removeEventListener('load', queueAlignment, true);
+    stage.removeEventListener('loadedmetadata', queueAlignment, true);
+    scroller.removeEventListener('wheel', stop);
+    scroller.removeEventListener('touchstart', stop);
+    scroller.removeEventListener('pointerdown', stop);
+    if (cancelMessageAlignment === stop) cancelMessageAlignment = null;
+  };
+
+  cancelMessageAlignment = stop;
+  observer?.observe(stage);
+  observer?.observe(target);
+  stage.addEventListener('load', queueAlignment, true);
+  stage.addEventListener('loadedmetadata', queueAlignment, true);
+  scroller.addEventListener('wheel', stop, { passive: true });
+  scroller.addEventListener('touchstart', stop, { passive: true });
+  scroller.addEventListener('pointerdown', stop, { passive: true });
+  [0, 80, 220, 500, 900].forEach((delay) => timers.push(setTimeout(queueAlignment, delay)));
+  timers.push(setTimeout(() => {
+    align();
+    stop();
+  }, 1400));
+}
+
+function clearMessageHighlightLater(messageId) {
+  setTimeout(() => {
+    if (String(state.highlightedMessageId) === String(messageId)) state.highlightedMessageId = null;
+  }, 1800);
+}
+
 function revealMessageInPlace(messageId) {
   const chat = getChat();
   if (!chat) return;
@@ -1407,12 +1479,8 @@ function revealMessageInPlace(messageId) {
     jumpToMessage(messageId, { keepSearchFocus: true });
     return;
   }
-  requestAnimationFrame(() => {
-    document.getElementById(`message-${safeId(messageId)}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    setTimeout(() => {
-      if (String(state.highlightedMessageId) === String(messageId)) state.highlightedMessageId = null;
-    }, 1800);
-  });
+  alignMessageAfterMedia(messageId);
+  clearMessageHighlightLater(messageId);
 }
 
 function findMessage(messageId, chat = getChat()) {
@@ -1433,12 +1501,8 @@ function jumpToMessage(messageId, options = {}) {
   });
   state.highlightedMessageId = String(messageId);
   renderViewer({ focusChatSearch: options.keepSearchFocus });
-  requestAnimationFrame(() => {
-    document.getElementById(`message-${safeId(messageId)}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    setTimeout(() => {
-      if (String(state.highlightedMessageId) === String(messageId)) state.highlightedMessageId = null;
-    }, 1800);
-  });
+  alignMessageAfterMedia(messageId);
+  clearMessageHighlightLater(messageId);
 }
 
 function openSearchResult(chatId, messageId) {
@@ -1453,7 +1517,8 @@ function openSearchResult(chatId, messageId) {
     state.highlightedMessageId = String(messageId);
   }
   renderViewer();
-  requestAnimationFrame(() => document.getElementById(`message-${safeId(messageId)}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
+  alignMessageAfterMedia(messageId);
+  clearMessageHighlightLater(messageId);
 }
 
 function jumpToDate(dateValue) {
